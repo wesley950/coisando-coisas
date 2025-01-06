@@ -1,20 +1,8 @@
-use actix_web::{get, middleware::Logger, App, HttpResponse, HttpServer};
+use actix_web::{middleware::Logger, App, HttpServer};
 use env_logger::Env;
-use pages::{index::render_index, submit::render_submit};
 
 mod pages;
-
-#[get("/")]
-async fn hello() -> HttpResponse {
-    let markup = render_index();
-    HttpResponse::Ok().body(markup.into_string())
-}
-
-#[get("/novo")]
-async fn submit() -> HttpResponse {
-    let markup = render_submit();
-    HttpResponse::Ok().body(markup.into_string())
-}
+use pages::{auth, index, info, submit};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -23,8 +11,10 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(|| {
         App::new()
             .wrap(Logger::default())
-            .service(hello)
-            .service(submit)
+            .configure(index::config)
+            .configure(submit::config)
+            .configure(auth::config)
+            .configure(info::config)
     })
     .bind(("0.0.0.0", 8080))?
     .run()

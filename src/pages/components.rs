@@ -95,6 +95,11 @@ pub fn render_menu() -> maud::Markup {
                     }
                 }
                 div .col.text-center.my-auto {
+                    a .text-decoration-none href="/diretrizes-da-comunidade" {
+                        small { "Diretrizes da Comunidade" }
+                    }
+                }
+                div .col.text-center.my-auto {
                     a .text-decoration-none href="/sobre" {
                         small { "Sobre" }
                     }

@@ -1,3 +1,4 @@
+use actix_web::{get, web, HttpResponse};
 use maud::html;
 
 use super::render_base;
@@ -14,7 +15,8 @@ struct Item {
     user: User,
 }
 
-pub fn render_index() -> maud::Markup {
+#[get("/")]
+async fn render_index() -> HttpResponse {
     let mock_items = vec![
         Item {
             title: "Livro de Matemática".to_string(),
@@ -45,7 +47,7 @@ pub fn render_index() -> maud::Markup {
         }
     ];
 
-    render_base(html! {
+    let markup = render_base(html! {
         // hero
         h1 .text-center { "Bem-vindo ao Coisando Coisas!" }
         p .lead.text-center { "Onde estudantes compartilham, trocam e salvam o planeta. 😃" }
@@ -85,5 +87,11 @@ pub fn render_index() -> maud::Markup {
         }
 
         // pagination maybe?
-    })
+    });
+
+    HttpResponse::Ok().body(markup.into_string())
+}
+
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.service(render_index);
 }

@@ -1,9 +1,11 @@
+use actix_web::{get, web, HttpResponse};
 use maud::html;
 
 use crate::pages::render_base;
 
-pub fn render_submit() -> maud::Markup {
-    render_base(html! {
+#[get("/novo")]
+async fn render_submit() -> HttpResponse {
+    let markup = render_base(html! {
         div .vstack gap-3 {
             h2 { "Novo item" }
 
@@ -38,5 +40,10 @@ pub fn render_submit() -> maud::Markup {
 
             button type="submit" class="btn btn-primary" { "Enviar" }
         }
-    })
+    });
+    HttpResponse::Ok().body(markup.into_string())
+}
+
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.service(render_submit);
 }

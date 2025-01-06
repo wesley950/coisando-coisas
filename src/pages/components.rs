@@ -17,63 +17,84 @@ pub fn render_navbar() -> maud::Markup {
 
 pub fn render_menu() -> maud::Markup {
     html! {
-        div .vstack.gap-3 {
-            div .list-group.shadow {
-                a .list-group-item.list-group-item-action.active href="/" {
-                    i .bi.bi-house-fill {} " Início"
+        div .vstack.gap-2 {
+            ul .nav.flex-column {
+                li .nav-item {
+                    a .nav-link href="/" {
+                        i .bi.bi-house-fill {} " Início"
+                    }
                 }
-                a .list-group-item.list-group-item-action href="/novo" {
-                    i .bi.bi-pencil-fill {} " Novo"
+                li .nav-item {
+                    a .nav-link href="/novo" {
+                        i .bi.bi-pencil-fill {} " Novo"
+                    }
                 }
             }
 
-            div .list-group.shadow {
-                a .list-group-item.list-group-item-action href="/doações" {
-                    i .bi.bi-box2-heart-fill {} " Doações"
+            ul .nav.flex-column {
+                li .nav-item {
+                    a .nav-link href="/doações" {
+                        i .bi.bi-box2-heart-fill {} " Doações"
+                    }
                 }
-                a .list-group-item.list-group-item-action href="/empréstimos" {
-                    i .bi.bi-calendar2-week-fill {} " Empréstimos"
+                li .nav-item {
+                    a .nav-link href="/empréstimos" {
+                        i .bi.bi-calendar2-week-fill {} " Empréstimos"
+                    }
                 }
-                a .list-group-item.list-group-item-action href="/trocas" {
-                    i .bi.bi-arrow-repeat {} " Trocas"
+                li .nav-item {
+                    a .nav-link href="/trocas" {
+                        i .bi.bi-arrow-repeat {} " Trocas"
+                    }
                 }
-                a .list-group-item.list-group-item-action href="/pedidos" {
-                    i .bi.bi-person-raised-hand {} " Pedidos"
+                li .nav-item {
+                    a .nav-link href="/pedidos" {
+                        i .bi.bi-person-raised-hand {} " Pedidos"
+                    }
                 }
             }
+
 
             // TODO: add auth logic
-            div .list-group.shadow {
-                a .list-group-item.list-group-item-action href="/entrar" {
-                    i .bi.bi-lock-fill {} " Entrar"
+            ul .nav.flex-column {
+                li .nav-item {
+                    a .nav-link href="/entrar" {
+                        i .bi.bi-lock-fill {} " Entrar"
+                    }
                 }
-                a .list-group-item.list-group-item-action href="/registrar" {
-                    i .bi.bi-door-open-fill {} " Criar conta"
+                li .nav-item {
+                    a .nav-link href="/registrar" {
+                        i .bi.bi-door-open-fill {} " Criar conta"
+                    }
                 }
-                a .list-group-item.list-group-item-action href="/minha-conta" {
-                    i .bi.bi-person-fill {} " Minha conta"
+                li .nav-item {
+                    a .nav-link href="/minha-conta" {
+                        i .bi.bi-person-fill {} " Minha conta"
+                    }
                 }
-                a .list-group-item.list-group-item-action href="/configurações" {
-                    i .bi.bi-gear-fill {} " Configurações"
+                li .nav-item {
+                    a .nav-link href="/configurações" {
+                        i .bi.bi-gear-fill {} " Configurações"
+                    }
                 }
             }
 
             // footer stuff
-            small .text-muted {
+            small .text-muted.mb-3 {
                 "Compartilhe objetos com colegas e ajude a criar uma universidade com menos consumo."
             }
-            div .row.g-2 {
-                div .col.text-center {
+            div .row.g-2.justify-content-center {
+                div .col.text-center.my-auto {
                     a .text-decoration-none href="/política-de-privacidade" {
                         small { "Política de privacidade" }
                     }
                 }
-                div .col.text-center {
+                div .col.text-center.my-auto {
                     a .text-decoration-none href="/termos-de-uso" {
                         small { "Termos de uso" }
                     }
                 }
-                div .col.text-center {
+                div .col.text-center.my-auto {
                     a .text-decoration-none href="/sobre" {
                         small { "Sobre" }
                     }

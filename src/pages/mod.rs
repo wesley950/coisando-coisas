@@ -43,3 +43,4 @@ fn render_base(content: maud::Markup) -> maud::Markup {
 
 pub mod auth;
 pub mod index;
+pub mod submit;

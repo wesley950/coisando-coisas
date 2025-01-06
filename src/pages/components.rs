@@ -80,7 +80,7 @@ pub fn render_menu() -> maud::Markup {
                 }
             }
             div .row {
-                a .text-decoration-none.text-center href="https://github.com/wesley950/biblioteca-de-coisas" {
+                a .text-decoration-none.text-center href="https://github.com/wesley950/coisando-coisas" {
                     small {
                         i .bi.bi-github {} " Código fonte"
                     }

@@ -2,7 +2,7 @@ use maud::html;
 
 pub mod components;
 
-fn render_base(content: maud::Markup) -> maud::Markup {
+fn render_base(content: maud::Markup, nickname: Option<String>) -> maud::Markup {
     html! {
         html lang="pt-br" {
             head {
@@ -20,12 +20,12 @@ fn render_base(content: maud::Markup) -> maud::Markup {
                     div .row {
                         // left menu, visible on md and lg screens
                         div .col-md-4.col-lg-3.d-none.d-md-block {
-                            (components::render_menu())
+                            (components::render_menu(nickname.clone()))
                         }
 
                         // collapsible menu, visible on sm and xs screens
                         div .col-md-4.col-lg-3.mb-4.collapse.d-md-none #menu {
-                            (components::render_menu())
+                            (components::render_menu(nickname.clone()))
                         }
 
                         // main content

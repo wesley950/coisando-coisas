@@ -16,7 +16,7 @@ pub fn render_navbar() -> maud::Markup {
     }
 }
 
-pub fn render_menu() -> maud::Markup {
+pub fn render_menu(nickname: Option<String>) -> maud::Markup {
     html! {
         div .vstack.gap-2 {
             ul .nav.flex-column {
@@ -58,24 +58,32 @@ pub fn render_menu() -> maud::Markup {
 
             // TODO: add auth logic
             ul .nav.flex-column {
-                li .nav-item {
-                    a .nav-link href="/entrar" {
-                        i .fa-solid.fa-lock {} " Entrar"
+                @if let Some(_) = nickname {
+                    li .nav-item {
+                        a .nav-link href="/minha-conta" {
+                            i .fa-solid.fa-user {} " Minha conta"
+                        }
                     }
-                }
-                li .nav-item {
-                    a .nav-link href="/registrar" {
-                        i .fa-solid.fa-door-open {} " Criar conta"
+                    li .nav-item {
+                        a .nav-link href="/configurações" {
+                            i .fa-solid.fa-gear {} " Configurações"
+                        }
                     }
-                }
-                li .nav-item {
-                    a .nav-link href="/minha-conta" {
-                        i .fa-solid.fa-user {} " Minha conta"
+                    li .nav-item {
+                        a .nav-link href="/sair" {
+                            i .fa-solid.fa-lock-open {} " Sair"
+                        }
                     }
-                }
-                li .nav-item {
-                    a .nav-link href="/configurações" {
-                        i .fa-solid.fa-gear {} " Configurações"
+                } @else {
+                    li .nav-item {
+                        a .nav-link href="/entrar" {
+                            i .fa-solid.fa-lock {} " Entrar"
+                        }
+                    }
+                    li .nav-item {
+                        a .nav-link href="/registrar" {
+                            i .fa-solid.fa-door-open {} " Criar conta"
+                        }
                     }
                 }
             }

@@ -1,7 +1,9 @@
 use std::io::Write;
 
-use actix_session::Session;
-use actix_web::{error::ErrorInternalServerError, get, post, web, HttpResponse};
+use actix_identity::Identity;
+use actix_web::{
+    error::ErrorInternalServerError, get, post, web, HttpMessage, HttpRequest, HttpResponse,
+};
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHasher, PasswordVerifier, SaltString},
     Argon2, PasswordHash,
@@ -15,9 +17,9 @@ use diesel::{
     deserialize::{FromSql, FromSqlRow},
     expression::AsExpression,
     pg::Pg,
-    query_dsl::methods::{FilterDsl, SelectDsl},
+    query_dsl::methods::{FilterDsl, FindDsl, SelectDsl},
     serialize::{IsNull, ToSql},
-    BoolExpressionMethods, Connection, ExpressionMethods, OptionalExtension, RunQueryDsl,
+    Connection, ExpressionMethods, OptionalExtension, RunQueryDsl,
 };
 use maud::html;
 use serde::Deserialize;
@@ -33,8 +35,8 @@ struct UserLoginForm {
 
 #[post("/entrar")]
 async fn login_user(
+    req: HttpRequest,
     pool: web::Data<DbPool>,
-    session: Session,
     details: web::Form<UserLoginForm>,
 ) -> Result<HttpResponse, actix_web::Error> {
     // get a connection from the pool
@@ -60,7 +62,7 @@ async fn login_user(
     let Some((user_id, hashed_pass)) = creds else {
         // redirect, showing an error message
         return Ok(HttpResponse::Unauthorized()
-            .append_header(("Location", "/login?erro=credenciais"))
+            .append_header(("Location", "/entrar?erro=credenciais"))
             .finish());
     };
 
@@ -73,12 +75,12 @@ async fn login_user(
     };
     let Ok(_) = argon2.verify_password(details.password.as_bytes(), &parsed_password_hash) else {
         return Ok(HttpResponse::Unauthorized()
-            .append_header(("Location", "/login?erro=credenciais"))
+            .append_header(("Location", "/entrar?erro=credenciais"))
             .finish());
     };
 
-    // create a session for the user
-    let Ok(_) = session.insert("id", user_id.simple().to_string()) else {
+    // log this user in
+    let Ok(_) = Identity::login(&req.extensions(), user_id.simple().to_string()) else {
         return Err(ErrorInternalServerError(
             "Não foi possível criar uma sessão para você",
         ));
@@ -92,14 +94,18 @@ async fn login_user(
 
 #[get("/entrar")]
 async fn login_page() -> HttpResponse {
-    let markup = render_base(html! {
-        form .vstack.gap-3 method="post" action="/login" {
-            h1 { "Entrar" }
-            input .form-control type="text" name="username" placeholder="Apelido";
-            input .form-control type="password" name="password" placeholder="Senha";
-            button .btn.btn-primary type="submit" { "Enviar" }
-        }
-    });
+    let markup = render_base(
+        html! {
+            form .vstack.gap-3 method="post" action="/entrar" {
+                h1 { "Entrar" }
+                input .form-control type="text" name="nickname" placeholder="Apelido";
+                input .form-control type="password" name="password" placeholder="Senha";
+                // TODO: add a captcha here
+                button .btn.btn-primary type="submit" { "Enviar" }
+            }
+        },
+        None,
+    ); // not necessary to have user's nickname here
     HttpResponse::Ok().body(markup.into_string())
 }
 
@@ -140,9 +146,10 @@ impl From<diesel::result::Error> for UserRegisterError {
 
 // function to send a confirmation email to the user
 fn send_confirmation_email(_email: &str, _code: Uuid) -> Result<(), ()> {
+    // TODO: in production, use a real email service
     // send an email to the user with the confirmation code
-    // this is just a placeholder, so it always fails
-    Err(())
+    // this is just a placeholder, so it always returns Ok and we manually verify the account
+    Ok(())
 }
 
 #[post("/registrar")]
@@ -198,7 +205,7 @@ async fn register_new_user(
             return Err(UserRegisterError::PasswordTooShort);
         } else if requirements
             .iter()
-            .any(|req| !details.password.contains(req))
+            .any(|req| !req.chars().any(|c| details.password.contains(c)))
         {
             // redirect, showing an error message
             return Err(UserRegisterError::PasswordWeak);
@@ -212,16 +219,21 @@ async fn register_new_user(
         };
 
         // insert new user
-        let Ok(new_user_id) = diesel::insert_into(users::table)
+        let new_user_id = match diesel::insert_into(users::table)
             .values((
+                users::id.eq(Uuid::new_v4()),
                 users::nickname.eq(&details.nickname),
                 users::email.eq(&details.email),
                 users::hashed_password.eq(hashed_pass.to_string()),
             ))
             .returning(users::id)
             .get_result::<Uuid>(conn)
-        else {
-            return Err(UserRegisterError::UnableToCreateUser);
+        {
+            Ok(user_id) => user_id,
+            Err(err) => {
+                println!("{:?}", err);
+                return Err(UserRegisterError::UnableToCreateUser);
+            }
         };
 
         // create confirmation code
@@ -252,23 +264,23 @@ async fn register_new_user(
             ));
         }
         Err(UserRegisterError::NicknameInUse) => {
-            return Ok(HttpResponse::Conflict()
-                .append_header(("Location", "/register?erro=apelido"))
+            return Ok(HttpResponse::Found()
+                .append_header(("Location", "/registrar?erro=apelido"))
                 .finish());
         }
         Err(UserRegisterError::EmailInUse) => {
-            return Ok(HttpResponse::Conflict()
-                .append_header(("Location", "/register?erro=email"))
+            return Ok(HttpResponse::Found()
+                .append_header(("Location", "/registrar?erro=email"))
                 .finish());
         }
         Err(UserRegisterError::PasswordTooShort) => {
-            return Ok(HttpResponse::Conflict()
-                .append_header(("Location", "/register?erro=senha-curta"))
+            return Ok(HttpResponse::Found()
+                .append_header(("Location", "/registrar?erro=senha-curta"))
                 .finish());
         }
         Err(UserRegisterError::PasswordWeak) => {
-            return Ok(HttpResponse::Conflict()
-                .append_header(("Location", "/register?erro=senha-fraca"))
+            return Ok(HttpResponse::Found()
+                .append_header(("Location", "/registrar?erro=senha-fraca"))
                 .finish());
         }
         Err(UserRegisterError::UnableToHashPassword) => {
@@ -299,17 +311,45 @@ async fn register_new_user(
         .finish())
 }
 
+#[derive(Deserialize)]
+struct RegisterErrorQuery {
+    erro: Option<String>,
+}
+
 #[get("/registrar")]
-async fn register_page() -> HttpResponse {
-    let markup = render_base(html! {
-        form .vstack.gap-3 method="post" action="/register" {
-            h1 { "Criar conta" }
-            input .form-control type="text" name="username" placeholder="Apelido";
-            input .form-control type="email" name="email" placeholder="Email";
-            input .form-control type="password" name="password" placeholder="Senha";
-            button .btn.btn-primary type="submit" { "Enviar" }
-        }
-    });
+async fn register_page(error: web::Query<RegisterErrorQuery>) -> HttpResponse {
+    let markup = render_base(
+        html! {
+            form .vstack.gap-3 method="post" action="/registrar" {
+                h1 { "Criar conta" }
+                @if let Some(ref error) = error.erro {
+                    div .alert.alert-danger role="alert" { (match error.as_str() {
+                        "apelido" => "O apelido já está em uso.",
+                        "email" => "O email já está em uso.",
+                        "senha-curta" => "A senha é muito curta.",
+                        "senha-fraca" => "A senha é muito fraca.",
+                        _ => "Erro desconhecido."
+                    }) }
+                }
+                input .form-control type="text" name="nickname" placeholder="Apelido";
+                input .form-control type="email" name="email" placeholder="Email";
+                input .form-control type="password" name="password" placeholder="Senha";
+                small { "Sua senha precisa ter pelo menos 8 caracteres, uma letra maiúscula e uma minúscula, um dígito e um dos seguintes símbolos: !@#$%^&*()-_=+[]{}|;:,.<>/?" }
+                .form-check {
+                    input .form-check-input type="checkbox" id="terms" name="terms" required;
+                    label .form-check-label for="terms" {
+                        "Ao me cadastrar, concordo com os "
+                        a href="/termos-de-uso" { "termos de uso" } ", a "
+                        a href="/política-de-privacidade" { "política de privacidade" } " e as "
+                        a href="/diretrizes-da-comunidade" { "diretrizes da comunidade" } "."
+                    }
+                }
+                // TODO: add a captcha here
+                button .btn.btn-primary type="submit" { "Enviar" }
+            }
+        },
+        None,
+    ); // also not necessary to have user's nickname here
     HttpResponse::Ok().body(markup.into_string())
 }
 
@@ -380,8 +420,8 @@ impl FromSql<UserStatus, Pg> for AccountStatus {
 /// checks if the code in the database and confirm the user's account
 #[get("/confirmar-conta")]
 async fn confirm_account(
+    req: HttpRequest,
     pool: web::Data<DbPool>,
-    session: Session,
     details: web::Query<VerificationInfo>,
 ) -> Result<HttpResponse, actix_web::Error> {
     // get a connection from the pool
@@ -415,10 +455,16 @@ async fn confirm_account(
             return Err(UserVerificationError::UnableToConfirmAccount);
         };
 
-        // TODO: set the account status to "CONFIRMED"
+        // set the account status to confirmed
+        let Ok(_) = diesel::update(users::table.filter(users::id.eq(&user_id)))
+            .set(users::status.eq(AccountStatus::CONFIRMED))
+            .execute(conn)
+        else {
+            return Err(UserVerificationError::UnableToConfirmAccount);
+        };
 
-        // lastly, set session to the user's id
-        let Ok(_) = session.insert("id", user_id.simple().to_string()) else {
+        // lastly, log the user in
+        let Ok(_) = Identity::login(&req.extensions(), user_id.simple().to_string()) else {
             return Err(UserVerificationError::UnableToCreateSession);
         };
 
@@ -457,22 +503,20 @@ async fn confirm_account(
 
 #[get("/confirmação")]
 async fn confirmation_page() -> HttpResponse {
-    let markup = render_base(html! {
-        h1 { "Verificação de email" }
-        p { "Enviamos um email para você. Por favor, verifique sua caixa de entrada." }
-    });
+    let markup = render_base(
+        html! {
+            h1 { "Verificação de email" }
+            p { "Enviamos um email para você. Por favor, verifique sua caixa de entrada." }
+        },
+        None, // not strictly necessary to have user's nickname here
+    );
     HttpResponse::Ok().body(markup.into_string())
 }
 
-#[derive(Deserialize)]
-struct UserQuery {
-    username: String,
-}
-
-#[get("/conta/{username}")]
+#[get("/minha-conta")]
 async fn account_page(
     pool: web::Data<DbPool>,
-    details: web::Path<UserQuery>,
+    identity: Option<Identity>,
 ) -> Result<HttpResponse, actix_web::Error> {
     // get a connection from the pool
     let Ok(mut conn) = pool.get() else {
@@ -481,13 +525,28 @@ async fn account_page(
         ));
     };
 
+    // check if is logged in
+    let Some(identity) = identity else {
+        return Ok(HttpResponse::Found()
+            .append_header(("Location", "/entrar"))
+            .finish());
+    };
+    let Ok(id) = identity.id() else {
+        return Err(ErrorInternalServerError(
+            "Não foi possível verificar sua sessão. Por favor, entre na sua conta novamente.",
+        ));
+    };
+
+    // parse the user id
+    let Ok(user_id) = Uuid::parse_str(&id) else {
+        return Err(ErrorInternalServerError(
+            "Não foi possível verificar sua sessão. Por favor, entre na sua conta novamente.",
+        ));
+    };
+
     // get user profile
     let Ok(user) = users::table
-        .filter(
-            users::nickname
-                .eq(&details.username)
-                .and(users::status.eq(AccountStatus::CONFIRMED)),
-        )
+        .find(user_id)
         .select((users::nickname, users::created_at))
         .first::<(String, DateTime<Utc>)>(&mut conn)
         .optional()
@@ -499,73 +558,101 @@ async fn account_page(
 
     let Some((username, created_at)) = user else {
         return Ok(HttpResponse::NotFound().body(
-            render_base(html! {
-                h1 { "Conta não encontrada" }
-                p { "A conta que você está procurando não existe." }
-            })
+            render_base(
+                html! {
+                    h1 { "Conta não encontrada" }
+                    p { "A conta que você está procurando não existe." }
+                },
+                None,
+            )
             .into_string(),
         ));
     };
 
-    let markup = render_base(html! {
-        h1 { (format!("Perfil de {}", username)) }
-        p { (format!("Conta criada em {}", created_at)) }
-    });
+    // TODO: add part where user can manage their posts
+
+    let markup = render_base(
+        html! {
+            h1 { (format!("Perfil de {}", username)) }
+            p #createdAt { (format!("Conta criada em {}", created_at)) }
+            script {
+                (format!(r#"
+            let createdAt = document.querySelector('\#createdAt');
+            createdAt.textContent = `Conta criada em ${{new Date('{}').toLocaleString()}}`;
+            "#, created_at))
+            }
+        },
+        Some(username),
+    );
 
     Ok(HttpResponse::Ok().body(markup.into_string()))
 }
 
 #[get("/configurações")]
 async fn settings_page() -> HttpResponse {
-    let markup = render_base(html! {
-        h1 { "Configurações" }
-        p { "Aqui você pode alterar suas informações." }
+    let markup = render_base(
+        html! {
+            h1 { "Configurações" }
+            p { "Aqui você pode alterar suas informações." }
 
-        // button to generate a new avatar
-        form .vstack.gap-3 method="post" action="/settings/avatar" {
-            h2 { "Gerar novo avatar" }
-            // preview of the new avatar
-            img src="https://api.dicebear.com/9.x/dylan/svg?seed=maria&radius=50&backgroundColor=29e051,619eff,ffa6e6,b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf&hair=buns,flatTop,fluffy,longCurls,parting,plain,roundBob,shaggy,shortCurls,spiky,wavy,bangs&mood=happy,hopeful,superHappy" class="rounded-circle" width="128" height="128" alt="avatar";
-            button .btn.btn-primary type="submit" { "Gerar" }
-        }
+            // button to generate a new avatar
+            form .vstack.gap-3 method="post" action="/settings/avatar" {
+                h2 { "Gerar novo avatar" }
+                // preview of the new avatar
+                img src="https://api.dicebear.com/9.x/dylan/svg?seed=maria&radius=50&backgroundColor=29e051,619eff,ffa6e6,b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf&hair=buns,flatTop,fluffy,longCurls,parting,plain,roundBob,shaggy,shortCurls,spiky,wavy,bangs&mood=happy,hopeful,superHappy" class="rounded-circle" width="128" height="128" alt="avatar";
+                button .btn.btn-primary type="submit" { "Gerar" }
+            }
 
-        // change nickname
-        form .vstack.gap-3 method="post" action="/settings/nickname" {
-            h2 { "Alterar apelido" }
-            input .form-control type="text" name="username" placeholder="Novo apelido";
-            button .btn.btn-primary type="submit" { "Enviar" }
-        }
+            // change nickname
+            form .vstack.gap-3 method="post" action="/settings/nickname" {
+                h2 { "Alterar apelido" }
+                input .form-control type="text" name="username" placeholder="Novo apelido";
+                button .btn.btn-primary type="submit" { "Enviar" }
+            }
 
-        // change email
-        form .vstack.gap-3 method="post" action="/settings/email" {
-            h2 { "Alterar email" }
-            input .form-control type="email" name="email" placeholder="Novo email";
-            button .btn.btn-primary type="submit" { "Enviar" }
-        }
+            // change email
+            form .vstack.gap-3 method="post" action="/settings/email" {
+                h2 { "Alterar email" }
+                input .form-control type="email" name="email" placeholder="Novo email";
+                button .btn.btn-primary type="submit" { "Enviar" }
+            }
 
-        // change password
-        form .vstack.gap-3 method="post" action="/settings/password" {
-            h2 { "Alterar senha" }
-            input .form-control type="password" name="password" placeholder="Nova senha";
-            button .btn.btn-primary type="submit" { "Enviar" }
-        }
+            // change password
+            form .vstack.gap-3 method="post" action="/settings/password" {
+                h2 { "Alterar senha" }
+                input .form-control type="password" name="password" placeholder="Nova senha";
+                button .btn.btn-primary type="submit" { "Enviar" }
+            }
 
-        // button to delete account
-        form .vstack.gap-3 method="post" action="/settings/delete" {
-            h2 { "Deletar conta" }
-            p { "Tem certeza que deseja deletar sua conta? Esta ação é irreversível." }
-            button .btn.btn-danger type="submit" { "Deletar conta" }
-        }
-    });
+            // button to delete account
+            form .vstack.gap-3 method="post" action="/settings/delete" {
+                h2 { "Deletar conta" }
+                p { "Tem certeza que deseja deletar sua conta? Esta ação é irreversível." }
+                button .btn.btn-danger type="submit" { "Deletar conta" }
+            }
+        },
+        None,
+    ); // TODO: check if user is logged instead of None
     HttpResponse::Ok().body(markup.into_string())
+}
+
+#[post("/settings/delete")]
+async fn delete_account() -> actix_web::Result<HttpResponse> {
+    // TODO: get logged user and delete it
+    Ok(HttpResponse::Found()
+        .append_header(("Location", "/conta-deletada"))
+        .finish())
 }
 
 #[get("/conta-deletada")]
 async fn deletion_confirmation_page() -> HttpResponse {
-    let markup = render_base(html! {
-        h1 { "Conta deletada" }
-        p { "Sua conta foi deletada com sucesso." }
-    });
+    let markup = render_base(
+        html! {
+            h1 { "Conta deletada" }
+            p { "Sua conta foi deletada com sucesso." }
+        },
+        None,
+    );
     HttpResponse::Ok().body(markup.into_string())
 }
 
@@ -574,8 +661,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .service(login_page)
         .service(register_new_user)
         .service(register_page)
+        .service(confirm_account)
         .service(confirmation_page)
         .service(account_page)
         .service(settings_page)
+        .service(delete_account)
         .service(deletion_confirmation_page);
 }

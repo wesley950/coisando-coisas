@@ -47,47 +47,50 @@ async fn render_index() -> HttpResponse {
         }
     ];
 
-    let markup = render_base(html! {
-        // hero
-        h1 .text-center { "Bem-vindo ao Coisando Coisas!" }
-        p .lead.text-center { "Onde estudantes compartilham, trocam e salvam o planeta. 😃" }
+    let markup = render_base(
+        html! {
+            // hero
+            h1 .text-center { "Bem-vindo ao Coisando Coisas!" }
+            p .lead.text-center { "Onde estudantes compartilham, trocam e salvam o planeta. 😃" }
 
-        // search form
-        div .form-floating.mb-3 {
-            input type="text" class="form-control" id="search" placeholder="";
-            label .text-muted for="search" { i .bi.bi-binoculars-fill {} " Do que você precisa?" }
-        }
+            // search form
+            div .form-floating.mb-3 {
+                input type="text" class="form-control" id="search" placeholder="";
+                label .text-muted for="search" { i .bi.bi-binoculars-fill {} " Do que você precisa?" }
+            }
 
-        // results
-        div .d-flex.flex-row.flex-wrap.gap-3.justify-content-center {
-            @for item in mock_items {
-                div .card.card-body.border-1.shadow style="width: 16em;" {
-                    div .vstack.gap-2 {
-                        // todo: image carousel
-                        div .img-fluid style="height: 350px;" {
-                            img src=(item.images[0]) class="object-fit-contain w-100 h-100 bg-dark" alt=(item.title);
-                        }
-
-                        // details
-                        h2 { (item.title) }
-                        // TODO: put link to profile page
-                        p {
-                            "Anunciado por "
-                            a href="#" {
-                                img src=(item.user.avatar_url) class="rounded-circle" width="32" height="32" alt=(item.user.username);
-                                (item.user.username)
+            // results
+            div .d-flex.flex-row.flex-wrap.gap-3.justify-content-center {
+                @for item in mock_items {
+                    div .card.card-body.border-1.shadow style="width: 16em;" {
+                        div .vstack.gap-2 {
+                            // todo: image carousel
+                            div .img-fluid style="height: 350px;" {
+                                img src=(item.images[0]) class="object-fit-contain w-100 h-100 bg-dark" alt=(item.title);
                             }
+
+                            // details
+                            h2 { (item.title) }
+                            // TODO: put link to profile page
+                            p {
+                                "Anunciado por "
+                                a href="#" {
+                                    img src=(item.user.avatar_url) class="rounded-circle" width="32" height="32" alt=(item.user.username);
+                                    (item.user.username)
+                                }
+                            }
+                            p .d-block.text-truncate.text-wrap style="height: 8em" { (item.description) }
+                            // TODO: link to item page
+                            a href="#" { "Detalhes" }
                         }
-                        p .d-block.text-truncate.text-wrap style="height: 8em" { (item.description) }
-                        // TODO: link to item page
-                        a href="#" { "Detalhes" }
                     }
                 }
             }
-        }
 
-        // pagination maybe?
-    });
+            // pagination maybe?
+        },
+        None,
+    ); // TODO: replace with actual user
 
     HttpResponse::Ok().body(markup.into_string())
 }

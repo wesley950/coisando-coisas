@@ -4,6 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+actix-session = { version = "0.10.1", features = ["cookie-session"] }
 actix-web = "4.9.0"
+argon2 = { version = "0.5.3", features = ["password-hash"] }
+chrono = { version = "0.4.39", features = ["serde"] }
+diesel = { version = "2.2.6", features = ["postgres", "uuid", "r2d2", "chrono"] }
+dotenvy = "0.15.7"
 env_logger = "0.11.6"
 maud = { version = "0.26.0", features = ["actix-web"] }
+r2d2_postgres = "0.18.2"
+reqwest = "0.12.12"
+serde = { version = "1.0.217", features = ["derive"] }
+uuid = { version = "1.11.0", features = ["v4", "serde"] }

@@ -5,10 +5,11 @@ pub fn render_navbar() -> maud::Markup {
         nav .navbar.bg-primary.navbar-dark.sticky-top {
             div .container {
                 a .navbar-brand.mx-auto href="/" {
-                    i .bi.bi-box2-heart-fill {} " Coisando Coisas"
+                    i .fa-solid.fa-hand-holding-heart {}
+                    strong { " Coisando Coisas" }
                 }
                 button .btn.btn-primary.d-block.d-md-none type="button" data-bs-toggle="collapse" data-bs-target="#menu" aria-expanded="false" aria-controls="menu" {
-                    i .bi.bi-list {} " Menu"
+                    i .fa-solid.fa-caret-down {} " Menu"
                 }
             }
         }
@@ -21,12 +22,12 @@ pub fn render_menu() -> maud::Markup {
             ul .nav.flex-column {
                 li .nav-item {
                     a .nav-link href="/" {
-                        i .bi.bi-house-fill {} " Início"
+                        i .fa-solid.fa-house {} " Início"
                     }
                 }
                 li .nav-item {
                     a .nav-link href="/novo" {
-                        i .bi.bi-pencil-fill {} " Novo"
+                        i .fa-solid.fa-pen-to-square {} " Novo"
                     }
                 }
             }
@@ -34,22 +35,22 @@ pub fn render_menu() -> maud::Markup {
             ul .nav.flex-column {
                 li .nav-item {
                     a .nav-link href="/doações" {
-                        i .bi.bi-box2-heart-fill {} " Doações"
+                        i .fa-solid.fa-gift {} " Doações"
                     }
                 }
                 li .nav-item {
                     a .nav-link href="/empréstimos" {
-                        i .bi.bi-calendar2-week-fill {} " Empréstimos"
+                        i .fa-solid.fa-clock {} " Empréstimos"
                     }
                 }
                 li .nav-item {
                     a .nav-link href="/trocas" {
-                        i .bi.bi-arrow-repeat {} " Trocas"
+                        i .fa-solid.fa-right-left {} " Trocas"
                     }
                 }
                 li .nav-item {
                     a .nav-link href="/pedidos" {
-                        i .bi.bi-person-raised-hand {} " Pedidos"
+                        i .fa-solid.fa-hand {} " Pedidos"
                     }
                 }
             }
@@ -59,22 +60,22 @@ pub fn render_menu() -> maud::Markup {
             ul .nav.flex-column {
                 li .nav-item {
                     a .nav-link href="/entrar" {
-                        i .bi.bi-lock-fill {} " Entrar"
+                        i .fa-solid.fa-lock {} " Entrar"
                     }
                 }
                 li .nav-item {
                     a .nav-link href="/registrar" {
-                        i .bi.bi-door-open-fill {} " Criar conta"
+                        i .fa-solid.fa-door-open {} " Criar conta"
                     }
                 }
                 li .nav-item {
                     a .nav-link href="/minha-conta" {
-                        i .bi.bi-person-fill {} " Minha conta"
+                        i .fa-solid.fa-user {} " Minha conta"
                     }
                 }
                 li .nav-item {
                     a .nav-link href="/configurações" {
-                        i .bi.bi-gear-fill {} " Configurações"
+                        i .fa-solid.fa-gear {} " Configurações"
                     }
                 }
             }
@@ -84,22 +85,22 @@ pub fn render_menu() -> maud::Markup {
                 "Compartilhe objetos com colegas e ajude a criar uma universidade com menos consumo."
             }
             div .row.g-2.justify-content-center {
-                div .col.text-center.my-auto {
+                div .col.text-center.text-nowrap {
                     a .text-decoration-none href="/política-de-privacidade" {
                         small { "Política de privacidade" }
                     }
                 }
-                div .col.text-center.my-auto {
+                div .col.text-center.text-nowrap {
                     a .text-decoration-none href="/termos-de-uso" {
                         small { "Termos de uso" }
                     }
                 }
-                div .col.text-center.my-auto {
+                div .col.text-center.text-nowrap {
                     a .text-decoration-none href="/diretrizes-da-comunidade" {
                         small { "Diretrizes da Comunidade" }
                     }
                 }
-                div .col.text-center.my-auto {
+                div .col.text-center.text-nowrap {
                     a .text-decoration-none href="/sobre" {
                         small { "Sobre" }
                     }
@@ -108,7 +109,7 @@ pub fn render_menu() -> maud::Markup {
             div .row {
                 a .text-decoration-none.text-center href="https://github.com/wesley950/coisando-coisas" {
                     small {
-                        i .bi.bi-github {} " Código fonte"
+                        i .fa-brands.fa-github {} " Código fonte"
                     }
                 }
             }

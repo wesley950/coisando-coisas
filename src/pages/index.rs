@@ -1,4 +1,5 @@
 use actix_web::{get, web, HttpResponse};
+use coisando_coisas::LocalUser;
 use maud::html;
 
 use super::render_base;
@@ -16,7 +17,7 @@ struct Item {
 }
 
 #[get("/")]
-async fn render_index() -> HttpResponse {
+async fn render_index(local_user: LocalUser) -> HttpResponse {
     let mock_items = vec![
         Item {
             title: "Livro de Matemática".to_string(),
@@ -89,8 +90,8 @@ async fn render_index() -> HttpResponse {
 
             // pagination maybe?
         },
-        None,
-    ); // TODO: replace with actual user
+        local_user,
+    );
 
     HttpResponse::Ok().body(markup.into_string())
 }

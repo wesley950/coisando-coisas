@@ -8,16 +8,15 @@ use argon2::{
     password_hash::{rand_core::OsRng, PasswordHasher, PasswordVerifier, SaltString},
     Argon2, PasswordHash,
 };
-use chrono::{DateTime, Utc};
 use coisando_coisas::{
     schema::{confirmation_codes, sql_types::UserStatus, users},
-    DbPool,
+    DbPool, LocalUser,
 };
 use diesel::{
     deserialize::{FromSql, FromSqlRow},
     expression::AsExpression,
     pg::Pg,
-    query_dsl::methods::{FilterDsl, FindDsl, SelectDsl},
+    query_dsl::methods::{FilterDsl, SelectDsl},
     serialize::{IsNull, ToSql},
     Connection, ExpressionMethods, OptionalExtension, RunQueryDsl,
 };
@@ -61,7 +60,7 @@ async fn login_user(
     // check if user exists
     let Some((user_id, hashed_pass)) = creds else {
         // redirect, showing an error message
-        return Ok(HttpResponse::Unauthorized()
+        return Ok(HttpResponse::Found()
             .append_header(("Location", "/entrar?erro=credenciais"))
             .finish());
     };
@@ -74,7 +73,7 @@ async fn login_user(
         ));
     };
     let Ok(_) = argon2.verify_password(details.password.as_bytes(), &parsed_password_hash) else {
-        return Ok(HttpResponse::Unauthorized()
+        return Ok(HttpResponse::Found()
             .append_header(("Location", "/entrar?erro=credenciais"))
             .finish());
     };
@@ -92,19 +91,30 @@ async fn login_user(
         .finish());
 }
 
+#[derive(Deserialize)]
+struct ErrorQuery {
+    erro: Option<String>,
+}
+
 #[get("/entrar")]
-async fn login_page() -> HttpResponse {
+async fn login_page(local_user: LocalUser, error: web::Query<ErrorQuery>) -> HttpResponse {
     let markup = render_base(
         html! {
             form .vstack.gap-3 method="post" action="/entrar" {
                 h1 { "Entrar" }
+                @if let Some(ref error) = error.erro {
+                    div .alert.alert-danger role="alert" { (match error.as_str() {
+                        "credenciais" => "Credenciais inválidas.",
+                        _ => "Erro desconhecido."
+                    }) }
+                }
                 input .form-control type="text" name="nickname" placeholder="Apelido";
                 input .form-control type="password" name="password" placeholder="Senha";
                 // TODO: add a captcha here
                 button .btn.btn-primary type="submit" { "Enviar" }
             }
         },
-        None,
+        local_user,
     ); // not necessary to have user's nickname here
     HttpResponse::Ok().body(markup.into_string())
 }
@@ -311,13 +321,14 @@ async fn register_new_user(
         .finish())
 }
 
-#[derive(Deserialize)]
-struct RegisterErrorQuery {
-    erro: Option<String>,
-}
-
 #[get("/registrar")]
-async fn register_page(error: web::Query<RegisterErrorQuery>) -> HttpResponse {
+async fn register_page(local_user: LocalUser, error: web::Query<ErrorQuery>) -> HttpResponse {
+    if let LocalUser::Authenticated { id: _, nickname: _ } = local_user {
+        return HttpResponse::Found()
+            .append_header(("Location", "/minha-conta"))
+            .finish();
+    }
+
     let markup = render_base(
         html! {
             form .vstack.gap-3 method="post" action="/registrar" {
@@ -348,7 +359,7 @@ async fn register_page(error: web::Query<RegisterErrorQuery>) -> HttpResponse {
                 button .btn.btn-primary type="submit" { "Enviar" }
             }
         },
-        None,
+        local_user,
     ); // also not necessary to have user's nickname here
     HttpResponse::Ok().body(markup.into_string())
 }
@@ -502,94 +513,67 @@ async fn confirm_account(
 }
 
 #[get("/confirmação")]
-async fn confirmation_page() -> HttpResponse {
+async fn confirmation_page(local_user: LocalUser) -> HttpResponse {
+    if let LocalUser::Authenticated { id: _, nickname: _ } = local_user {
+        return HttpResponse::Found()
+            .append_header(("Location", "/minha-conta"))
+            .finish();
+    }
+
     let markup = render_base(
         html! {
             h1 { "Verificação de email" }
             p { "Enviamos um email para você. Por favor, verifique sua caixa de entrada." }
         },
-        None, // not strictly necessary to have user's nickname here
+        local_user, // not strictly necessary to have user's nickname here
     );
     HttpResponse::Ok().body(markup.into_string())
 }
 
 #[get("/minha-conta")]
-async fn account_page(
-    pool: web::Data<DbPool>,
-    identity: Option<Identity>,
-) -> Result<HttpResponse, actix_web::Error> {
-    // get a connection from the pool
-    let Ok(mut conn) = pool.get() else {
-        return Err(ErrorInternalServerError(
-            "Não foi possível conectar ao banco de dados",
-        ));
-    };
-
-    // check if is logged in
-    let Some(identity) = identity else {
-        return Ok(HttpResponse::Found()
-            .append_header(("Location", "/entrar"))
-            .finish());
-    };
-    let Ok(id) = identity.id() else {
-        return Err(ErrorInternalServerError(
-            "Não foi possível verificar sua sessão. Por favor, entre na sua conta novamente.",
-        ));
-    };
-
-    // parse the user id
-    let Ok(user_id) = Uuid::parse_str(&id) else {
-        return Err(ErrorInternalServerError(
-            "Não foi possível verificar sua sessão. Por favor, entre na sua conta novamente.",
-        ));
-    };
-
-    // get user profile
-    let Ok(user) = users::table
-        .find(user_id)
-        .select((users::nickname, users::created_at))
-        .first::<(String, DateTime<Utc>)>(&mut conn)
-        .optional()
-    else {
-        return Err(ErrorInternalServerError(
-            "Não foi possível procurar o perfil do usuário",
-        ));
-    };
-
-    let Some((username, created_at)) = user else {
-        return Ok(HttpResponse::NotFound().body(
-            render_base(
-                html! {
-                    h1 { "Conta não encontrada" }
-                    p { "A conta que você está procurando não existe." }
-                },
-                None,
-            )
-            .into_string(),
-        ));
-    };
-
+async fn account_page(local_user: LocalUser) -> Result<HttpResponse, actix_web::Error> {
     // TODO: add part where user can manage their posts
 
+    let (_user_id, nickname) = match &local_user {
+        LocalUser::Authenticated { id, nickname } => (id, nickname),
+        LocalUser::Anonymous => {
+            return Ok(HttpResponse::Found()
+                .append_header(("Location", "/entrar"))
+                .finish());
+        }
+    };
+
+    let created_at = "TODO: get user's creation date and other info";
     let markup = render_base(
         html! {
-            h1 { (format!("Perfil de {}", username)) }
+            h1 { (format!("Perfil de {}", nickname)) }
             p #createdAt { (format!("Conta criada em {}", created_at)) }
-            script {
-                (format!(r#"
-            let createdAt = document.querySelector('\#createdAt');
-            createdAt.textContent = `Conta criada em ${{new Date('{}').toLocaleString()}}`;
-            "#, created_at))
-            }
         },
-        Some(username),
+        local_user,
     );
 
     Ok(HttpResponse::Ok().body(markup.into_string()))
 }
 
+#[get("/sair")]
+async fn logout_user(id: Option<Identity>) -> HttpResponse {
+    if let Some(id) = id {
+        id.logout();
+    }
+
+    HttpResponse::Found()
+        .append_header(("Location", "/"))
+        .finish()
+}
+
 #[get("/configurações")]
-async fn settings_page() -> HttpResponse {
+async fn settings_page(local_user: LocalUser) -> HttpResponse {
+    if let LocalUser::Anonymous = local_user {
+        return HttpResponse::Found()
+            .append_header(("Location", "/entrar"))
+            .finish();
+    }
+
     let markup = render_base(
         html! {
             h1 { "Configurações" }
@@ -610,13 +594,6 @@ async fn settings_page() -> HttpResponse {
                 button .btn.btn-primary type="submit" { "Enviar" }
             }
 
-            // change email
-            form .vstack.gap-3 method="post" action="/settings/email" {
-                h2 { "Alterar email" }
-                input .form-control type="email" name="email" placeholder="Novo email";
-                button .btn.btn-primary type="submit" { "Enviar" }
-            }
-
             // change password
             form .vstack.gap-3 method="post" action="/settings/password" {
                 h2 { "Alterar senha" }
@@ -631,27 +608,39 @@ async fn settings_page() -> HttpResponse {
                 button .btn.btn-danger type="submit" { "Deletar conta" }
             }
         },
-        None,
-    ); // TODO: check if user is logged instead of None
+        local_user,
+    );
     HttpResponse::Ok().body(markup.into_string())
 }
 
 #[post("/settings/delete")]
-async fn delete_account() -> actix_web::Result<HttpResponse> {
-    // TODO: get logged user and delete it
+async fn delete_account(id: Option<Identity>) -> actix_web::Result<HttpResponse> {
+    // log user out
+    if let Some(id) = id {
+        id.logout();
+    }
+
+    // TODO: delete this account from the database
+
     Ok(HttpResponse::Found()
         .append_header(("Location", "/conta-deletada"))
         .finish())
 }
 
 #[get("/conta-deletada")]
-async fn deletion_confirmation_page() -> HttpResponse {
+async fn deletion_confirmation_page(local_user: LocalUser) -> HttpResponse {
+    if let LocalUser::Authenticated { id: _, nickname: _ } = local_user {
+        return HttpResponse::Found()
+            .append_header(("Location", "/"))
+            .finish();
+    }
+
     let markup = render_base(
         html! {
             h1 { "Conta deletada" }
             p { "Sua conta foi deletada com sucesso." }
         },
-        None,
+        local_user,
     );
     HttpResponse::Ok().body(markup.into_string())
 }
@@ -664,6 +653,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .service(confirm_account)
         .service(confirmation_page)
         .service(account_page)
+        .service(logout_user)
         .service(settings_page)
         .service(delete_account)
         .service(deletion_confirmation_page);

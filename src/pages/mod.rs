@@ -1,8 +1,9 @@
+use coisando_coisas::LocalUser;
 use maud::html;
 
 pub mod components;
 
-fn render_base(content: maud::Markup, nickname: Option<String>) -> maud::Markup {
+fn render_base(content: maud::Markup, local_user: LocalUser) -> maud::Markup {
     html! {
         html lang="pt-br" {
             head {
@@ -20,12 +21,12 @@ fn render_base(content: maud::Markup, nickname: Option<String>) -> maud::Markup 
                     div .row {
                         // left menu, visible on md and lg screens
                         div .col-md-4.col-lg-3.d-none.d-md-block {
-                            (components::render_menu(nickname.clone()))
+                            (components::render_menu(&local_user))
                         }
 
                         // collapsible menu, visible on sm and xs screens
                         div .col-md-4.col-lg-3.mb-4.collapse.d-md-none #menu {
-                            (components::render_menu(nickname.clone()))
+                            (components::render_menu(&local_user))
                         }
 
                         // main content
@@ -43,5 +44,5 @@ fn render_base(content: maud::Markup, nickname: Option<String>) -> maud::Markup 
 
 pub mod auth;
 pub mod index;
-pub mod submit;
 pub mod info;
+pub mod submit;

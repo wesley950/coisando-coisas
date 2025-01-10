@@ -71,7 +71,7 @@ pub fn render_menu(local_user: &LocalUser) -> maud::Markup {
                             }
                         }
                     }
-                    LocalUser::Authenticated { id: _id, nickname: _nickname } => {
+                    LocalUser::Authenticated { .. } => {
                         li .nav-item {
                             a .nav-link href="/minha-conta" {
                                 i .fa-solid.fa-user {} " Minha conta"

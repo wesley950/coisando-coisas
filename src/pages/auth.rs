@@ -18,7 +18,7 @@ use diesel::{
     pg::Pg,
     query_dsl::methods::{FilterDsl, SelectDsl},
     serialize::{IsNull, ToSql},
-    Connection, ExpressionMethods, OptionalExtension, RunQueryDsl,
+    BoolExpressionMethods, Connection, ExpressionMethods, OptionalExtension, RunQueryDsl,
 };
 use maud::html;
 use serde::Deserialize;
@@ -30,6 +30,42 @@ use crate::pages::render_base;
 struct UserLoginForm {
     pub nickname: String,
     pub password: String,
+}
+
+// map db enum to rust enum
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromSqlRow, AsExpression)]
+#[diesel(sql_type = UserStatus)]
+enum AccountStatus {
+    PENDING,
+    CONFIRMED,
+    DISABLED,
+}
+
+impl ToSql<UserStatus, Pg> for AccountStatus {
+    fn to_sql<'b>(
+        &'b self,
+        out: &mut diesel::serialize::Output<'b, '_, Pg>,
+    ) -> diesel::serialize::Result {
+        match *self {
+            AccountStatus::PENDING => out.write_all(b"PENDING")?,
+            AccountStatus::CONFIRMED => out.write_all(b"CONFIRMED")?,
+            AccountStatus::DISABLED => out.write_all(b"DISABLED")?,
+        }
+        Ok(IsNull::No)
+    }
+}
+
+impl FromSql<UserStatus, Pg> for AccountStatus {
+    fn from_sql(
+        bytes: <Pg as diesel::backend::Backend>::RawValue<'_>,
+    ) -> diesel::deserialize::Result<Self> {
+        match bytes.as_bytes() {
+            b"PENDING" => Ok(AccountStatus::PENDING),
+            b"CONFIRMED" => Ok(AccountStatus::CONFIRMED),
+            b"DISABLED" => Ok(AccountStatus::DISABLED),
+            _ => Err("Unknown user status".into()),
+        }
+    }
 }
 
 #[post("/entrar")]
@@ -47,7 +83,11 @@ async fn login_user(
 
     // get user's hashed password
     let Ok(creds) = users::table
-        .filter(users::nickname.eq(&details.nickname))
+        .filter(
+            users::nickname
+                .eq(&details.nickname)
+                .and(users::status.eq(AccountStatus::CONFIRMED)),
+        )
         .select((users::id, users::hashed_password))
         .first::<(Uuid, String)>(&mut conn)
         .optional()
@@ -175,6 +215,12 @@ async fn register_new_user(
     };
 
     let transaction_result = conn.transaction::<(), UserRegisterError, _>(|conn| {
+        // TODO: check if nickname is too short
+
+        // TODO: check if nickname has only alphanumeric characters and underscores
+
+        // TODO: do the same checks for changing nickname
+
         // check if nickname is already taken
         let Ok(nickname_in_use) = users::table
             .filter(users::nickname.eq(&details.nickname))
@@ -188,6 +234,8 @@ async fn register_new_user(
         if nickname_in_use.is_some() {
             return Err(UserRegisterError::NicknameInUse);
         }
+
+        // TODO: check email domain
 
         // check if email is already taken
         let Ok(email_in_use) = users::table
@@ -204,6 +252,7 @@ async fn register_new_user(
         }
 
         // check password strength
+        // TODO: also do the same checks for changing password
         let requirements = [
             "abcdefghijklmnopqrstuvwxyz",
             "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
@@ -235,6 +284,7 @@ async fn register_new_user(
                 users::nickname.eq(&details.nickname),
                 users::email.eq(&details.email),
                 users::hashed_password.eq(hashed_pass.to_string()),
+                users::avatar_seed.eq(Uuid::new_v4()),
             ))
             .returning(users::id)
             .get_result::<Uuid>(conn)
@@ -323,7 +373,7 @@ async fn register_new_user(
 
 #[get("/registrar")]
 async fn register_page(local_user: LocalUser, error: web::Query<ErrorQuery>) -> HttpResponse {
-    if let LocalUser::Authenticated { id: _, nickname: _ } = local_user {
+    if let LocalUser::Authenticated { .. } = local_user {
         return HttpResponse::Found()
             .append_header(("Location", "/minha-conta"))
             .finish();
@@ -388,42 +438,6 @@ impl From<UserVerificationError> for diesel::result::Error {
 impl From<diesel::result::Error> for UserVerificationError {
     fn from(_: diesel::result::Error) -> Self {
         UserVerificationError::InternalServerError
-    }
-}
-
-// testing enum
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromSqlRow, AsExpression)]
-#[diesel(sql_type = UserStatus)]
-enum AccountStatus {
-    PENDING,
-    CONFIRMED,
-    DISABLED,
-}
-
-impl ToSql<UserStatus, Pg> for AccountStatus {
-    fn to_sql<'b>(
-        &'b self,
-        out: &mut diesel::serialize::Output<'b, '_, Pg>,
-    ) -> diesel::serialize::Result {
-        match *self {
-            AccountStatus::PENDING => out.write_all(b"PENDING")?,
-            AccountStatus::CONFIRMED => out.write_all(b"CONFIRMED")?,
-            AccountStatus::DISABLED => out.write_all(b"DISABLED")?,
-        }
-        Ok(IsNull::No)
-    }
-}
-
-impl FromSql<UserStatus, Pg> for AccountStatus {
-    fn from_sql(
-        bytes: <Pg as diesel::backend::Backend>::RawValue<'_>,
-    ) -> diesel::deserialize::Result<Self> {
-        match bytes.as_bytes() {
-            b"PENDING" => Ok(AccountStatus::PENDING),
-            b"CONFIRMED" => Ok(AccountStatus::CONFIRMED),
-            b"DISABLED" => Ok(AccountStatus::DISABLED),
-            _ => Err("Unknown user status".into()),
-        }
     }
 }
 
@@ -514,7 +528,7 @@ async fn confirm_account(
 
 #[get("/confirmação")]
 async fn confirmation_page(local_user: LocalUser) -> HttpResponse {
-    if let LocalUser::Authenticated { id: _, nickname: _ } = local_user {
+    if let LocalUser::Authenticated { .. } = local_user {
         return HttpResponse::Found()
             .append_header(("Location", "/minha-conta"))
             .finish();
@@ -534,8 +548,12 @@ async fn confirmation_page(local_user: LocalUser) -> HttpResponse {
 async fn account_page(local_user: LocalUser) -> Result<HttpResponse, actix_web::Error> {
     // TODO: add part where user can manage their posts
 
-    let (_user_id, nickname) = match &local_user {
-        LocalUser::Authenticated { id, nickname } => (id, nickname),
+    let (_user_id, nickname, avatar_seed) = match &local_user {
+        LocalUser::Authenticated {
+            id,
+            nickname,
+            avatar_seed,
+        } => (id, nickname, avatar_seed),
         LocalUser::Anonymous => {
             return Ok(HttpResponse::Found()
                 .append_header(("Location", "/entrar"))
@@ -547,6 +565,7 @@ async fn account_page(local_user: LocalUser) -> Result<HttpResponse, actix_web::
     let markup = render_base(
         html! {
             h1 { (format!("Perfil de {}", nickname)) }
+            img .rounded-circle src=(format!("https://api.dicebear.com/9.x/dylan/svg?seed={}&radius=50&backgroundColor=29e051,619eff,ffa6e6,b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf&hair=buns,flatTop,fluffy,longCurls,parting,plain,roundBob,shaggy,shortCurls,spiky,wavy,bangs&mood=happy,hopeful,superHappy", avatar_seed)) width="128" height="128" alt="avatar";
             p #createdAt { (format!("Conta criada em {}", created_at)) }
         },
         local_user,
@@ -566,8 +585,175 @@ async fn logout_user(id: Option<Identity>) -> HttpResponse {
         .finish()
 }
 
+#[post("/settings/avatar")]
+async fn generate_avatar(
+    local_user: LocalUser,
+    pool: web::Data<DbPool>,
+) -> actix_web::Result<HttpResponse> {
+    if let LocalUser::Anonymous = local_user {
+        return Ok(HttpResponse::Found()
+            .append_header(("Location", "/entrar"))
+            .finish());
+    } else if let LocalUser::Authenticated { id, .. } = local_user {
+        // get a connection from the pool
+        let Ok(mut conn) = pool.get() else {
+            return Err(ErrorInternalServerError(
+                "Não foi possível conectar ao banco de dados",
+            ));
+        };
+
+        // generate a new avatar seed
+        let new_avatar_seed = Uuid::new_v4();
+
+        // update the user's avatar seed
+        let Ok(_) = diesel::update(users::table.filter(users::id.eq(id)))
+            .set(users::avatar_seed.eq(new_avatar_seed))
+            .execute(&mut conn)
+        else {
+            return Err(ErrorInternalServerError(
+                "Não foi possível gerar um novo avatar",
+            ));
+        };
+    };
+
+    Ok(HttpResponse::Found()
+        .append_header(("Location", "/configurações"))
+        .finish())
+}
+
+#[derive(Deserialize)]
+struct NewNicknameForm {
+    nickname: String,
+}
+
+#[post("/settings/nickname")]
+async fn change_nickname(
+    local_user: LocalUser,
+    pool: web::Data<DbPool>,
+    new_nickname: web::Form<NewNicknameForm>,
+) -> actix_web::Result<HttpResponse> {
+    let new_nickname = new_nickname.into_inner();
+    if let LocalUser::Authenticated { id, .. } = local_user {
+        // get a connection from the pool
+        let Ok(mut conn) = pool.get() else {
+            return Err(ErrorInternalServerError(
+                "Não foi possível conectar ao banco de dados",
+            ));
+        };
+
+        // check if the new nickname is already in use
+        let Ok(nickname_in_use) = users::table
+            .filter(users::nickname.eq(&new_nickname.nickname))
+            .select(users::nickname)
+            .first::<String>(&mut conn)
+            .optional()
+        else {
+            return Err(ErrorInternalServerError(
+                "Não foi possível verificar o novo apelido",
+            ));
+        };
+        if let Some(_) = nickname_in_use {
+            return Ok(HttpResponse::Found()
+                .append_header(("Location", "/configurações?erro=apelido-em-uso"))
+                .finish());
+        }
+
+        // update the user's nickname
+        let Ok(_) = diesel::update(users::table.filter(users::id.eq(id)))
+            .set(users::nickname.eq(&new_nickname.nickname))
+            .execute(&mut conn)
+        else {
+            return Err(ErrorInternalServerError(
+                "Não foi possível alterar o seu apelido",
+            ));
+        };
+    } else {
+        return Ok(HttpResponse::Found()
+            .append_header(("Location", "/entrar"))
+            .finish());
+    };
+
+    // redirect to the settings page
+    Ok(HttpResponse::Found()
+        .append_header(("Location", "/configurações"))
+        .finish())
+}
+
+#[derive(Deserialize)]
+struct NewPasswordForm {
+    password: String,
+}
+
+#[post("/settings/password")]
+async fn change_password(
+    local_user: LocalUser,
+    pool: web::Data<DbPool>,
+    new_password: web::Form<NewPasswordForm>,
+) -> actix_web::Result<HttpResponse> {
+    let new_password = new_password.into_inner();
+    if let LocalUser::Authenticated { id, .. } = local_user {
+        // get a connection from the pool
+        let Ok(mut conn) = pool.get() else {
+            return Err(ErrorInternalServerError(
+                "Não foi possível conectar ao banco de dados",
+            ));
+        };
+
+        // check password strength
+        // TODO: move this to a function so the register page can use it too
+        let requirements = [
+            "abcdefghijklmnopqrstuvwxyz",
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+            "0123456789",
+            "!@#$%^&*()-_=+[]{}|;:,.<>/?",
+        ];
+        if new_password.password.len() < 8 {
+            // redirect, showing an error message
+            return Ok(HttpResponse::Found()
+                .append_header(("Location", "/configurações?erro=senha-curta"))
+                .finish());
+        } else if requirements
+            .iter()
+            .any(|req| !req.chars().any(|c| new_password.password.contains(c)))
+        {
+            // redirect, showing an error message
+            return Ok(HttpResponse::Found()
+                .append_header(("Location", "/configurações?erro=senha-fraca"))
+                .finish());
+        }
+
+        // hash the password
+        let salt = SaltString::generate(OsRng);
+        let argon2 = Argon2::default();
+        let Ok(hashed_pass) = argon2.hash_password(new_password.password.as_bytes(), &salt) else {
+            return Err(ErrorInternalServerError(
+                "Não foi possível criptografar a sua senha",
+            ));
+        };
+
+        // update the user's password
+        let Ok(_) = diesel::update(users::table.filter(users::id.eq(id)))
+            .set(users::hashed_password.eq(hashed_pass.to_string()))
+            .execute(&mut conn)
+        else {
+            return Err(ErrorInternalServerError(
+                "Não foi possível alterar a sua senha",
+            ));
+        };
+    } else {
+        return Ok(HttpResponse::Found()
+            .append_header(("Location", "/entrar"))
+            .finish());
+    };
+
+    // redirect to the settings page
+    Ok(HttpResponse::Found()
+        .append_header(("Location", "/configurações"))
+        .finish())
+}
+
 #[get("/configurações")]
-async fn settings_page(local_user: LocalUser) -> HttpResponse {
+async fn settings_page(local_user: LocalUser, error: web::Query<ErrorQuery>) -> HttpResponse {
     if let LocalUser::Anonymous = local_user {
         return HttpResponse::Found()
             .append_header(("Location", "/entrar"))
@@ -579,18 +765,40 @@ async fn settings_page(local_user: LocalUser) -> HttpResponse {
             h1 { "Configurações" }
             p { "Aqui você pode alterar suas informações." }
 
+            @if let Some(ref error) = error.erro {
+                div .alert.alert-danger role="alert" { (match error.as_str() {
+                    "apelido-em-uso" => "O apelido já está em uso.",
+                    "senha-curta" => "A senha é muito curta.",
+                    "senha-fraca" => "A senha é muito fraca.",
+                    _ => "Erro desconhecido."
+                }) }
+            }
+
             // button to generate a new avatar
             form .vstack.gap-3 method="post" action="/settings/avatar" {
                 h2 { "Gerar novo avatar" }
                 // preview of the new avatar
-                img src="https://api.dicebear.com/9.x/dylan/svg?seed=maria&radius=50&backgroundColor=29e051,619eff,ffa6e6,b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf&hair=buns,flatTop,fluffy,longCurls,parting,plain,roundBob,shaggy,shortCurls,spiky,wavy,bangs&mood=happy,hopeful,superHappy" class="rounded-circle" width="128" height="128" alt="avatar";
+                @match &local_user {
+                    LocalUser::Authenticated {avatar_seed, ..} => {
+                        img src=(format!("https://api.dicebear.com/9.x/dylan/svg?seed={}&radius=50&backgroundColor=29e051,619eff,ffa6e6,b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf&hair=buns,flatTop,fluffy,longCurls,parting,plain,roundBob,shaggy,shortCurls,spiky,wavy,bangs&mood=happy,hopeful,superHappy", avatar_seed)) class="rounded-circle" width="128" height="128" alt="avatar";
+                    },
+                    _ => {}
+                }
                 button .btn.btn-primary type="submit" { "Gerar" }
             }
 
             // change nickname
             form .vstack.gap-3 method="post" action="/settings/nickname" {
                 h2 { "Alterar apelido" }
-                input .form-control type="text" name="username" placeholder="Novo apelido";
+
+                @match &local_user {
+                    LocalUser::Authenticated { nickname, .. } => {
+                        p { (format!("Seu apelido atual é {}", nickname)) }
+                    },
+                    _ => {}
+                };
+
+                input .form-control type="text" name="nickname" placeholder="Novo apelido";
                 button .btn.btn-primary type="submit" { "Enviar" }
             }
 
@@ -614,13 +822,31 @@ async fn settings_page(local_user: LocalUser) -> HttpResponse {
 }
 
 #[post("/settings/delete")]
-async fn delete_account(id: Option<Identity>) -> actix_web::Result<HttpResponse> {
+async fn delete_account(
+    pool: web::Data<DbPool>,
+    local_user: LocalUser,
+    id: Option<Identity>,
+) -> actix_web::Result<HttpResponse> {
     // log user out
     if let Some(id) = id {
         id.logout();
     }
 
-    // TODO: delete this account from the database
+    if let LocalUser::Authenticated { id, .. } = local_user {
+        // get a connection from the pool
+        let Ok(mut conn) = pool.get() else {
+            return Err(ErrorInternalServerError(
+                "Não foi possível conectar ao banco de dados",
+            ));
+        };
+
+        // delete user's account
+        let Ok(_) = diesel::delete(users::table.filter(users::id.eq(id))).execute(&mut conn) else {
+            return Err(ErrorInternalServerError(
+                "Não foi possível deletar a sua conta",
+            ));
+        };
+    };
 
     Ok(HttpResponse::Found()
         .append_header(("Location", "/conta-deletada"))
@@ -629,7 +855,7 @@ async fn delete_account(id: Option<Identity>) -> actix_web::Result<HttpResponse>
 
 #[get("/conta-deletada")]
 async fn deletion_confirmation_page(local_user: LocalUser) -> HttpResponse {
-    if let LocalUser::Authenticated { id: _, nickname: _ } = local_user {
+    if let LocalUser::Authenticated { .. } = local_user {
         return HttpResponse::Found()
             .append_header(("Location", "/"))
             .finish();
@@ -654,6 +880,9 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .service(confirmation_page)
         .service(account_page)
         .service(logout_user)
+        .service(generate_avatar)
+        .service(change_nickname)
+        .service(change_password)
         .service(settings_page)
         .service(delete_account)
         .service(deletion_confirmation_page);

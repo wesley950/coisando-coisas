@@ -8,7 +8,7 @@ use diesel::{
     PgConnection, RunQueryDsl,
 };
 use r2d2_postgres::r2d2;
-use schema::users::{self};
+use schema::users;
 use uuid::Uuid;
 
 pub mod schema;
@@ -18,7 +18,11 @@ pub type DbPool = r2d2::Pool<ConnectionManager<PgConnection>>;
 
 pub enum LocalUser {
     Anonymous,
-    Authenticated { id: Uuid, nickname: String },
+    Authenticated {
+        id: Uuid,
+        nickname: String,
+        avatar_seed: Uuid,
+    },
 }
 
 impl FromRequest for LocalUser {
@@ -61,10 +65,10 @@ impl FromRequest for LocalUser {
         };
 
         // get the user from the database
-        let Ok((user_id, nickname)) = users::table
+        let Ok((user_id, nickname, avatar_seed)) = users::table
             .find(id)
-            .select((users::id, users::nickname))
-            .first::<(Uuid, String)>(&mut conn)
+            .select((users::id, users::nickname, users::avatar_seed))
+            .first::<(Uuid, String, Uuid)>(&mut conn)
         else {
             println!("No user");
             return ready(Ok(LocalUser::Anonymous));
@@ -73,6 +77,7 @@ impl FromRequest for LocalUser {
         ready(Ok(LocalUser::Authenticated {
             id: user_id,
             nickname,
+            avatar_seed,
         }))
     }
 }

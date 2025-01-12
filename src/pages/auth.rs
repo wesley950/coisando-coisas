@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::{collections::HashMap, env, io::Write};
 
 use actix_identity::Identity;
 use actix_web::{
@@ -177,7 +177,6 @@ enum UserRegisterError {
     UnableToHashPassword,
     UnableToCreateUser,
     UnableToCreateConfirmationCode,
-    UnableToSendEmail,
 }
 
 // implement this From<> so we can rollback the transaction and return a meaningful error for the user
@@ -195,10 +194,36 @@ impl From<diesel::result::Error> for UserRegisterError {
 }
 
 // function to send a confirmation email to the user
-fn send_confirmation_email(_email: &str, _code: Uuid) -> Result<(), ()> {
-    // TODO: in production, use a real email service
-    // send an email to the user with the confirmation code
-    // this is just a placeholder, so it always returns Ok and we manually verify the account
+async fn send_confirmation_email(
+    mg_api_key: &str,
+    nickname: &str,
+    email: &str,
+    code: Uuid,
+) -> Result<(), ()> {
+    let client = reqwest::Client::new();
+    let mut data = HashMap::new();
+    let code = code.simple().to_string();
+    data.insert(
+        "from",
+        "Coisando Coisas <naoresponder@mg.coisandocoisas.cc>",
+    );
+    data.insert("to", &email);
+    data.insert("template", "verificação de conta");
+    data.insert("subject", "Confirme sua conta no Coisando Coisas");
+    data.insert("v:code", code.as_str());
+    data.insert("v:nickname", nickname);
+
+    // todo: add message template name and variables
+
+    let Ok(_response) = client
+        .post("https://api.mailgun.net/v3/mg.coisandocoisas.cc/messages")
+        .basic_auth("api", Some(mg_api_key))
+        .form(&data)
+        .send()
+        .await
+    else {
+        return Err(());
+    };
     Ok(())
 }
 
@@ -214,7 +239,7 @@ async fn register_new_user(
         ));
     };
 
-    let transaction_result = conn.transaction::<(), UserRegisterError, _>(|conn| {
+    let transaction_result = conn.transaction::<Uuid, UserRegisterError, _>(|conn| {
         // TODO: check if nickname is too short
 
         // TODO: check if nickname has only alphanumeric characters and underscores
@@ -308,16 +333,27 @@ async fn register_new_user(
             return Err(UserRegisterError::UnableToCreateConfirmationCode);
         };
 
-        // try send to user via email
-        let Ok(_) = send_confirmation_email(&details.email, confirmation_code) else {
-            return Err(UserRegisterError::UnableToSendEmail);
-        };
-
-        Ok(())
+        Ok(confirmation_code)
     });
 
     match transaction_result {
-        Ok(_) => (),
+        Ok(confirmation_code) => {
+            // try send to user via email
+            let mg_api_key =
+                env::var("MAILGUN_SENDING_API_KEY").expect("MAILGUN_SENDING_API_KEY must be set");
+            let Ok(_) = send_confirmation_email(
+                &mg_api_key,
+                &details.nickname,
+                &details.email,
+                confirmation_code,
+            )
+            .await
+            else {
+                return Err(ErrorInternalServerError(
+                    "Não foi possível enviar o email de confirmação",
+                ));
+            };
+        }
         Err(UserRegisterError::InternalServerError) => {
             return Err(ErrorInternalServerError(
                 "Não foi possível criar sua conta devido a um erro interno.",
@@ -356,11 +392,6 @@ async fn register_new_user(
         Err(UserRegisterError::UnableToCreateConfirmationCode) => {
             return Err(ErrorInternalServerError(
                 "Não foi possível criar o código de confirmação devido a um erro interno.",
-            ));
-        }
-        Err(UserRegisterError::UnableToSendEmail) => {
-            return Err(ErrorInternalServerError(
-                "Não foi possível enviar o email de confirmação devido a um erro interno.",
             ));
         }
     };

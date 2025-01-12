@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env, io::Write};
+use std::{collections::HashMap, env};
 
 use actix_identity::Identity;
 use actix_web::{
@@ -9,16 +9,12 @@ use argon2::{
     Argon2, PasswordHash,
 };
 use coisando_coisas::{
-    schema::{confirmation_codes, sql_types::UserStatus, users},
-    DbPool, LocalUser,
+    schema::{confirmation_codes, users},
+    AccountStatus, DbPool, LocalUser,
 };
 use diesel::{
-    deserialize::{FromSql, FromSqlRow},
-    expression::AsExpression,
-    pg::Pg,
     query_dsl::methods::{FilterDsl, SelectDsl},
-    serialize::{IsNull, ToSql},
-    BoolExpressionMethods, Connection, ExpressionMethods, OptionalExtension, RunQueryDsl,
+    Connection, ExpressionMethods, OptionalExtension, RunQueryDsl,
 };
 use maud::html;
 use serde::Deserialize;
@@ -30,42 +26,6 @@ use crate::pages::render_base;
 struct UserLoginForm {
     pub nickname: String,
     pub password: String,
-}
-
-// map db enum to rust enum
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromSqlRow, AsExpression)]
-#[diesel(sql_type = UserStatus)]
-enum AccountStatus {
-    PENDING,
-    CONFIRMED,
-    DISABLED,
-}
-
-impl ToSql<UserStatus, Pg> for AccountStatus {
-    fn to_sql<'b>(
-        &'b self,
-        out: &mut diesel::serialize::Output<'b, '_, Pg>,
-    ) -> diesel::serialize::Result {
-        match *self {
-            AccountStatus::PENDING => out.write_all(b"PENDING")?,
-            AccountStatus::CONFIRMED => out.write_all(b"CONFIRMED")?,
-            AccountStatus::DISABLED => out.write_all(b"DISABLED")?,
-        }
-        Ok(IsNull::No)
-    }
-}
-
-impl FromSql<UserStatus, Pg> for AccountStatus {
-    fn from_sql(
-        bytes: <Pg as diesel::backend::Backend>::RawValue<'_>,
-    ) -> diesel::deserialize::Result<Self> {
-        match bytes.as_bytes() {
-            b"PENDING" => Ok(AccountStatus::PENDING),
-            b"CONFIRMED" => Ok(AccountStatus::CONFIRMED),
-            b"DISABLED" => Ok(AccountStatus::DISABLED),
-            _ => Err("Unknown user status".into()),
-        }
-    }
 }
 
 #[post("/entrar")]
@@ -83,11 +43,7 @@ async fn login_user(
 
     // get user's hashed password
     let Ok(creds) = users::table
-        .filter(
-            users::nickname
-                .eq(&details.nickname)
-                .and(users::status.eq(AccountStatus::CONFIRMED)),
-        )
+        .filter(users::nickname.eq(&details.nickname))
         .select((users::id, users::hashed_password))
         .first::<(Uuid, String)>(&mut conn)
         .optional()
@@ -568,7 +524,8 @@ async fn confirmation_page(local_user: LocalUser) -> HttpResponse {
     let markup = render_base(
         html! {
             h1 { "Verificação de email" }
-            p { "Enviamos um email para você. Por favor, verifique sua caixa de entrada." }
+            p { "Enviamos um email para você. Por favor, verifique sua caixa de entrada e spam." }
+            p { "Se ainda assim você não recebeu o email, entre em contato com " strong { "suporte@coisandocoisas.cc" } }
         },
         local_user, // not strictly necessary to have user's nickname here
     );
@@ -588,6 +545,11 @@ async fn account_page(local_user: LocalUser) -> Result<HttpResponse, actix_web::
         LocalUser::Anonymous => {
             return Ok(HttpResponse::Found()
                 .append_header(("Location", "/entrar"))
+                .finish());
+        }
+        LocalUser::Pending => {
+            return Ok(HttpResponse::Found()
+                .append_header(("Location", "/confirmação"))
                 .finish());
         }
     };
@@ -788,6 +750,11 @@ async fn settings_page(local_user: LocalUser, error: web::Query<ErrorQuery>) -> 
     if let LocalUser::Anonymous = local_user {
         return HttpResponse::Found()
             .append_header(("Location", "/entrar"))
+            .finish();
+    } else if let LocalUser::Pending = local_user {
+        // TODO: do this also for the index and reservation pages
+        return HttpResponse::Found()
+            .append_header(("Location", "/confirmação"))
             .finish();
     }
 

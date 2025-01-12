@@ -59,18 +59,6 @@ pub fn render_menu(local_user: &LocalUser) -> maud::Markup {
 
             ul .nav.flex-column {
                 @match local_user {
-                    LocalUser::Anonymous => {
-                        li .nav-item {
-                            a .nav-link href="/entrar" {
-                                i .fa-solid.fa-lock {} " Entrar"
-                            }
-                        }
-                        li .nav-item {
-                            a .nav-link href="/registrar" {
-                                i .fa-solid.fa-door-open {} " Criar conta"
-                            }
-                        }
-                    }
                     LocalUser::Authenticated { .. } => {
                         li .nav-item {
                             a .nav-link href="/minha-conta" {
@@ -85,6 +73,18 @@ pub fn render_menu(local_user: &LocalUser) -> maud::Markup {
                         li .nav-item {
                             a .nav-link href="/sair" {
                                 i .fa-solid.fa-lock-open {} " Sair"
+                            }
+                        }
+                    }
+                    _ => {
+                        li .nav-item {
+                            a .nav-link href="/entrar" {
+                                i .fa-solid.fa-lock {} " Entrar"
+                            }
+                        }
+                        li .nav-item {
+                            a .nav-link href="/registrar" {
+                                i .fa-solid.fa-door-open {} " Criar conta"
                             }
                         }
                     }

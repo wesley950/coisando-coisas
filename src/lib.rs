@@ -1,14 +1,21 @@
-use std::future::{ready, Ready};
+use std::{
+    future::{ready, Ready},
+    io::Write,
+};
 
 use actix_identity::Identity;
 use actix_web::{web, FromRequest};
 use diesel::{
+    deserialize::{FromSql, FromSqlRow},
+    expression::AsExpression,
+    pg::Pg,
     query_dsl::methods::{FindDsl, SelectDsl},
     r2d2::ConnectionManager,
+    serialize::{IsNull, ToSql},
     PgConnection, RunQueryDsl,
 };
 use r2d2_postgres::r2d2;
-use schema::users;
+use schema::{sql_types::UserStatus, users};
 use uuid::Uuid;
 
 pub mod schema;
@@ -16,8 +23,44 @@ pub mod schema;
 pub type DbConn = PgConnection;
 pub type DbPool = r2d2::Pool<ConnectionManager<PgConnection>>;
 
+// map db enum to rust enum
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromSqlRow, AsExpression)]
+#[diesel(sql_type = UserStatus)]
+pub enum AccountStatus {
+    PENDING,
+    CONFIRMED,
+    DISABLED,
+}
+
+impl ToSql<UserStatus, Pg> for AccountStatus {
+    fn to_sql<'b>(
+        &'b self,
+        out: &mut diesel::serialize::Output<'b, '_, Pg>,
+    ) -> diesel::serialize::Result {
+        match *self {
+            AccountStatus::PENDING => out.write_all(b"PENDING")?,
+            AccountStatus::CONFIRMED => out.write_all(b"CONFIRMED")?,
+            AccountStatus::DISABLED => out.write_all(b"DISABLED")?,
+        }
+        Ok(IsNull::No)
+    }
+}
+
+impl FromSql<UserStatus, Pg> for AccountStatus {
+    fn from_sql(
+        bytes: <Pg as diesel::backend::Backend>::RawValue<'_>,
+    ) -> diesel::deserialize::Result<Self> {
+        match bytes.as_bytes() {
+            b"PENDING" => Ok(AccountStatus::PENDING),
+            b"CONFIRMED" => Ok(AccountStatus::CONFIRMED),
+            b"DISABLED" => Ok(AccountStatus::DISABLED),
+            _ => Err("Unknown user status".into()),
+        }
+    }
+}
 pub enum LocalUser {
     Anonymous,
+    Pending,
     Authenticated {
         id: Uuid,
         nickname: String,
@@ -65,14 +108,23 @@ impl FromRequest for LocalUser {
         };
 
         // get the user from the database
-        let Ok((user_id, nickname, avatar_seed)) = users::table
+        let Ok((user_id, nickname, avatar_seed, status)) = users::table
             .find(id)
-            .select((users::id, users::nickname, users::avatar_seed))
-            .first::<(Uuid, String, Uuid)>(&mut conn)
+            .select((
+                users::id,
+                users::nickname,
+                users::avatar_seed,
+                users::status,
+            ))
+            .first::<(Uuid, String, Uuid, AccountStatus)>(&mut conn)
         else {
             println!("No user");
             return ready(Ok(LocalUser::Anonymous));
         };
+
+        if let AccountStatus::PENDING = status {
+            return ready(Ok(LocalUser::Pending));
+        }
 
         ready(Ok(LocalUser::Authenticated {
             id: user_id,

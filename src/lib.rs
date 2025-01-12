@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     future::{ready, Ready},
     io::Write,
 };
@@ -15,7 +16,10 @@ use diesel::{
     PgConnection, RunQueryDsl,
 };
 use r2d2_postgres::r2d2;
-use schema::{sql_types::UserStatus, users};
+use schema::{
+    sql_types::{ListingCampus, ListingType, UserStatus},
+    users,
+};
 use uuid::Uuid;
 
 pub mod schema;
@@ -58,6 +62,105 @@ impl FromSql<UserStatus, Pg> for AccountStatus {
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromSqlRow, AsExpression)]
+#[diesel(sql_type = ListingCampus)]
+pub enum Campus {
+    DarcyRibeiro,
+    Planaltina,
+    Ceilandia,
+    Gama,
+}
+
+impl fmt::Display for Campus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Campus::DarcyRibeiro => write!(f, "Darcy Ribeiro"),
+            Campus::Planaltina => write!(f, "Planaltina"),
+            Campus::Ceilandia => write!(f, "Ceilândia"),
+            Campus::Gama => write!(f, "Gama"),
+        }
+    }
+}
+
+impl ToSql<ListingCampus, Pg> for Campus {
+    fn to_sql<'b>(
+        &'b self,
+        out: &mut diesel::serialize::Output<'b, '_, Pg>,
+    ) -> diesel::serialize::Result {
+        match *self {
+            Campus::DarcyRibeiro => out.write_all(b"DARCY")?,
+            Campus::Planaltina => out.write_all(b"PLANALTINA")?,
+            Campus::Ceilandia => out.write_all(b"CEILANDIA")?,
+            Campus::Gama => out.write_all(b"GAMA")?,
+        }
+        Ok(IsNull::No)
+    }
+}
+
+impl FromSql<ListingCampus, Pg> for Campus {
+    fn from_sql(
+        bytes: <Pg as diesel::backend::Backend>::RawValue<'_>,
+    ) -> diesel::deserialize::Result<Self> {
+        match bytes.as_bytes() {
+            b"DARCY" => Ok(Campus::DarcyRibeiro),
+            b"PLANALTINA" => Ok(Campus::Planaltina),
+            b"CEILANDIA" => Ok(Campus::Ceilandia),
+            b"GAMA" => Ok(Campus::Gama),
+            _ => Err("Unknown campus".into()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromSqlRow, AsExpression)]
+#[diesel(sql_type = ListingType)]
+pub enum Type {
+    Donation,
+    Loan,
+    Exchange,
+    Request,
+}
+
+impl fmt::Display for Type {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Type::Donation => write!(f, "Doação"),
+            Type::Loan => write!(f, "Empréstimo"),
+            Type::Exchange => write!(f, "Troca"),
+            Type::Request => write!(f, "Pedido"),
+        }
+    }
+}
+
+impl ToSql<ListingType, Pg> for Type {
+    fn to_sql<'b>(
+        &'b self,
+        out: &mut diesel::serialize::Output<'b, '_, Pg>,
+    ) -> diesel::serialize::Result {
+        match *self {
+            Type::Donation => out.write_all(b"DONATION")?,
+            Type::Loan => out.write_all(b"LOAN")?,
+            Type::Exchange => out.write_all(b"EXCHANGE")?,
+            Type::Request => out.write_all(b"REQUEST")?,
+        }
+        Ok(IsNull::No)
+    }
+}
+
+impl FromSql<ListingType, Pg> for Type {
+    fn from_sql(
+        bytes: <Pg as diesel::backend::Backend>::RawValue<'_>,
+    ) -> diesel::deserialize::Result<Self> {
+        match bytes.as_bytes() {
+            b"DONATION" => Ok(Type::Donation),
+            b"LOAN" => Ok(Type::Loan),
+            b"EXCHANGE" => Ok(Type::Exchange),
+            b"REQUEST" => Ok(Type::Request),
+            _ => Err("Unknown listing type".into()),
+        }
+    }
+}
+
 pub enum LocalUser {
     Anonymous,
     Pending,

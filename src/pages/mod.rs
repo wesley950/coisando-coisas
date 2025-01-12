@@ -1,5 +1,12 @@
 use coisando_coisas::LocalUser;
 use maud::html;
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+pub struct PaginationQuery {
+    pub deslocamento: Option<usize>,
+    pub quantidade: Option<usize>,
+}
 
 pub mod components;
 

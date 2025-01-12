@@ -1,5 +1,3 @@
-use std::io::Write;
-
 use actix_multipart::form::{tempfile::TempFile, text::Text, MultipartForm};
 use actix_web::{
     error::{ErrorBadRequest, ErrorForbidden, ErrorInternalServerError, ErrorUnauthorized},
@@ -7,19 +5,10 @@ use actix_web::{
 };
 use aws_sdk_s3::{primitives::ByteStream, Client};
 use coisando_coisas::{
-    schema::{
-        attachments, listings,
-        sql_types::{ListingCampus, ListingType},
-    },
-    DbPool, LocalUser,
+    schema::{attachments, listings},
+    Campus, DbPool, LocalUser, Type,
 };
-use diesel::{
-    deserialize::{FromSql, FromSqlRow},
-    expression::AsExpression,
-    pg::Pg,
-    serialize::{IsNull, ToSql},
-    ExpressionMethods, RunQueryDsl,
-};
+use diesel::{ExpressionMethods, RunQueryDsl};
 use maud::html;
 use uuid::Uuid;
 
@@ -67,82 +56,6 @@ async fn render_submit(local_user: LocalUser) -> actix_web::Result<HttpResponse>
         local_user,
     );
     Ok(HttpResponse::Ok().body(markup.into_string()))
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromSqlRow, AsExpression)]
-#[diesel(sql_type = ListingCampus)]
-enum Campus {
-    DarcyRibeiro,
-    Planaltina,
-    Ceilandia,
-    Gama,
-}
-
-impl ToSql<ListingCampus, Pg> for Campus {
-    fn to_sql<'b>(
-        &'b self,
-        out: &mut diesel::serialize::Output<'b, '_, Pg>,
-    ) -> diesel::serialize::Result {
-        match *self {
-            Campus::DarcyRibeiro => out.write_all(b"DARCY")?,
-            Campus::Planaltina => out.write_all(b"PLANALTINA")?,
-            Campus::Ceilandia => out.write_all(b"CEILANDIA")?,
-            Campus::Gama => out.write_all(b"GAMA")?,
-        }
-        Ok(IsNull::No)
-    }
-}
-
-impl FromSql<ListingCampus, Pg> for Campus {
-    fn from_sql(
-        bytes: <Pg as diesel::backend::Backend>::RawValue<'_>,
-    ) -> diesel::deserialize::Result<Self> {
-        match bytes.as_bytes() {
-            b"DARCY" => Ok(Campus::DarcyRibeiro),
-            b"PLANALTINA" => Ok(Campus::Planaltina),
-            b"CEILANDIA" => Ok(Campus::Ceilandia),
-            b"GAMA" => Ok(Campus::Gama),
-            _ => Err("Unknown campus".into()),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromSqlRow, AsExpression)]
-#[diesel(sql_type = ListingType)]
-enum Type {
-    Donation,
-    Loan,
-    Exchange,
-    Request,
-}
-
-impl ToSql<ListingType, Pg> for Type {
-    fn to_sql<'b>(
-        &'b self,
-        out: &mut diesel::serialize::Output<'b, '_, Pg>,
-    ) -> diesel::serialize::Result {
-        match *self {
-            Type::Donation => out.write_all(b"DONATION")?,
-            Type::Loan => out.write_all(b"LOAN")?,
-            Type::Exchange => out.write_all(b"EXCHANGE")?,
-            Type::Request => out.write_all(b"REQUEST")?,
-        }
-        Ok(IsNull::No)
-    }
-}
-
-impl FromSql<ListingType, Pg> for Type {
-    fn from_sql(
-        bytes: <Pg as diesel::backend::Backend>::RawValue<'_>,
-    ) -> diesel::deserialize::Result<Self> {
-        match bytes.as_bytes() {
-            b"DONATION" => Ok(Type::Donation),
-            b"LOAN" => Ok(Type::Loan),
-            b"EXCHANGE" => Ok(Type::Exchange),
-            b"REQUEST" => Ok(Type::Request),
-            _ => Err("Unknown listing type".into()),
-        }
-    }
 }
 
 #[derive(MultipartForm)]
